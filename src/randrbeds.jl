@@ -77,6 +77,8 @@ function randrbeds(n::Int, sequence::Vector,
     intercept::Real, seqcoef::Vector, periodcoef::Vector, formcoef::Vector,
     dropsubj::Float64, dropobs::Int, seed::Int)
 
+    θinter[end] = thetaunlink(θinter[end])
+    
     rng = MersenneTwister()
     if seed == 0  Random.seed!(rng) else Random.seed!(seed) end
 

@@ -59,6 +59,13 @@ struct RBE
     optim::Optim.MultivariateOptimizationResults           #Optimization result object
 end
 
+
+function thetalink(θ)
+    return 1/(1+θ^4)
+end
+function thetaunlink(x)
+    return sqrt(sqrt((1-x)/x))
+end
 """
 
     rbe(df; dvar::Symbol,
@@ -95,7 +102,7 @@ function rbe(df; dvar::Symbol,
     store_trace = false, extended_trace = false, show_trace = false,
     memopt = true,
     init = [],
-    twostep = true,
+    twostep = false,
     postopt = false)
 
     if any(x -> x ∉ names(df), [subject, formulation, period, sequence]) throw(ArgumentError("Names not found in DataFrame!")) end
@@ -159,6 +166,7 @@ function rbe(df; dvar::Symbol,
     #method = NelderMead()
     limeps  = eps()
     pO      = nothing
+
     if twostep
         pO = optimize(od, [limeps, limeps, limeps, limeps, limeps], [Inf, Inf, Inf, Inf, 1.0], θvec0,  Fminbox(method), Optim.Options(g_tol = 1e-1))
     #pO = optimize(remlf,  [limeps, limeps, limeps, limeps, limeps], [Inf, Inf, Inf, Inf, 1.0], θvec0,  Fminbox(method), Optim.Options(g_tol = 1e-3))
@@ -167,6 +175,7 @@ function rbe(df; dvar::Symbol,
         #@warn "First optimization step failed. Start step two with initial θ..."
         θ  = θvec0
     end
+
     #Final optimization
     #Provide gradient function for Optim
     #Not used yet
@@ -182,6 +191,7 @@ function rbe(df; dvar::Symbol,
     remlv = -reml2b!(yv, Zv, p, n, N, Xv, G, Rv, Vv, iVv, θ, β, memalloc)
 
     #θ[5] can not be more than 1.0
+    #=
     if θ[5] >= 1.0
         θ[5] = 1.0 - eps()
         if !twostep && !postopt
@@ -193,6 +203,7 @@ function rbe(df; dvar::Symbol,
             remlv = -reml2b!(yv, Zv, p, n, N, Xv, G, Rv, Vv, iVv, θ, β, memalloc)
         end
     end
+    =#
     #Get Hessian matrix (H) with ForwardDiff
     #H           = Optim.trace(O)[end].metadata["h(x)"]
     H           = ForwardDiff.hessian(x -> -2*reml(yv, Zv, p, Xv, x, β), θ)
@@ -295,6 +306,10 @@ function rbe!(df; dvar::Symbol,
         df[!,dvar] = float.(df[!,dvar])
     end
 
+    if !(eltype(df[!,dvar]) <: Real)
+        df[!,dvar] = float.(df[!,dvar])
+    end
+
     categorical!(df, subject);
     categorical!(df, formulation);
     categorical!(df, period);
@@ -314,6 +329,7 @@ end
 Returm -2REML for rbe model
 """
 function reml2(rbe::RBE, θ::Array{Float64, 1})
+    θ[end] = thetaunlink(θ[end])
     return -2*reml(rbe.yv, rbe.Zv, rank(ModelMatrix(rbe.model).m), rbe.Xv, θ, coef(rbe))
 end
 """
@@ -447,7 +463,9 @@ end
 Return theta (θ) vector (vector of variation parameters from optimization procedure).
 """
 function theta(rbe::RBE)
-    return collect(rbe.θ)
+    θ = collect(rbe.θ)
+    θ[end] = thetalink(θ[end])
+    return θ
 end
 """
     coefnum(rbe::RBE)
@@ -526,7 +544,7 @@ function Base.show(io::IO, rbe::RBE)
 
     printmatrix(io,[rcoef[1] round(rbe.θ[3], sigdigits=6) "";
                     rcoef[2] round(rbe.θ[4], sigdigits=6) "";
-                    "ρ:"     round(rbe.θ[5], sigdigits=6) "Cov: $(round(sqrt(rbe.θ[4]*rbe.θ[3])*rbe.θ[5], sigdigits=6))"])
+                    "ρ:"     round(thetalink(rbe.θ[5]), sigdigits=6) "Cov: $(round(sqrt(rbe.θ[4]*rbe.θ[3])*thetalink(rbe.θ[5]), sigdigits=6))"])
     println(io, "")
 
     println(io, "Confidence intervals(90%):")
