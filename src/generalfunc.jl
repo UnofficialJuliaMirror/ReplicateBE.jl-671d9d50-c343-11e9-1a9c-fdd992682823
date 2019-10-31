@@ -40,8 +40,8 @@ end
     #if σ[3] < 0.0 σ[3] = 0.0 + eps() end
     #if σ[1] < 0.0 σ[1] = eps() end
     #if σ[2] < 0.0 σ[2] = eps() end
-    cov = sqrt(abs(σ[1] * σ[2])) * thetalink(σ[3])
-    return [abs(σ[1]) cov; cov abs(σ[2])]
+    cov = sqrt(σ[1] * σ[2]) * thetalink(σ[3])
+    return [σ[1] cov; cov σ[2]]
 end
 """
     G matrix  (memory pre-allocation)
@@ -51,9 +51,9 @@ end
     #if σ[3] < 0.0 σ[3] = 0.0 + eps() end
     #if σ[1] < 0.0 σ[1] = eps() end
     #if σ[2] < 0.0 σ[2] = eps() end
-    G[1, 1] = abs(σ[1])
-    G[2, 2] = abs(σ[2])
-    G[1, 2] = G[2, 1] = sqrt(abs(σ[1] * σ[2])) * thetalink(σ[3])
+    G[1, 1] = σ[1]
+    G[2, 2] = σ[2]
+    G[1, 2] = G[2, 1] = sqrt(σ[1] * σ[2]) * thetalink(σ[3])
     return
 end
 
@@ -63,7 +63,7 @@ end
 @inline function rmat(σ::Vector{S}, Z::Matrix{T})::Matrix where S <: Real where T <: Real
     #if σ[1] < 0.0 σ[1] = eps() end
     #if σ[2] < 0.0 σ[2] = eps() end
-    return Matrix(Diagonal((Z*abs.(σ))[:,1]))
+    return Matrix(Diagonal((Z*σ)[:,1]))
 end
 """
     R matrix  (memory pre-allocation)
@@ -71,7 +71,7 @@ end
 @inline function rmat!(R::Matrix{Float64}, σ::Array{Float64, 1}, Z::Matrix{Float64})
     #if σ[1] < 0.0 σ[1] = eps() end
     #if σ[2] < 0.0 σ[2] = eps() end
-    copyto!(R, Matrix(Diagonal((Z*abs.(σ))[:,1])))
+    copyto!(R, Matrix(Diagonal((Z*σ)[:,1])))
     return
 end
 #-------------------------------------------------------------------------------
@@ -97,7 +97,7 @@ function mvmat(G::Matrix{S}, σ::Vector{T}, Z::Matrix{U}, cache) where S <: Real
     else
         #if σ[1] < 0.0 σ[1] = 1.0e-6 end
         #if σ[2] < 0.0 σ[2] = 1.0e-6 end
-        V  = Z*G*Z' + Matrix(Diagonal((Z*abs.(σ))[:,1]))
+        V  = Z*G*Z' + Matrix(Diagonal((Z*σ)[:,1]))
         cache[h] = V
         return V
     end

@@ -59,12 +59,19 @@ struct RBE
     optim::Optim.MultivariateOptimizationResults           #Optimization result object
 end
 
+function varlink(θ)
+    θl  = Array{eltype(θ), 1}(undef, length(θ))
+    θl .= θ
+    θl[1:4] .= exp.(θ[1:4])
+    θl[5]    = 1/(1+θ[5]^4)
+    return θl
+end
 
 function thetalink(θ)
-    return 1/(1+θ^4)
+    return θ
 end
-function thetaunlink(x)
-    return sqrt(sqrt((1-x)/x))
+function thetaunlink(θ)
+    return θ
 end
 """
 
@@ -149,7 +156,7 @@ function rbe(df; dvar::Symbol,
     #Calculate initial variance
     iv = initvar(df, dvar, formulation, subject)
     if iv[1] < iv[3] || iv[2] < iv[3] iv[1] = iv[2] = 2*iv[3] end
-    θvec0 = [iv[3], iv[3], iv[1]-iv[3], iv[2]-iv[3], 0.501]
+    θvec0 = varlink([iv[3], iv[3], iv[1]-iv[3], iv[2]-iv[3], 0.501])
     #Prelocatiom for G, R, V, V⁻¹ matrices
     G     = zeros(2, 2)
     Rv    = Array{Array{Float64,2}, 1}(undef, n)
@@ -159,7 +166,7 @@ function rbe(df; dvar::Symbol,
     matvecz!(Vv, Zv)
     matvecz!(iVv, Zv)
     #First step optimization (pre-optimization)
-    od = OnceDifferentiable(x -> -2*reml(yv, Zv, p, Xv, x, β; memopt = memopt), θvec0; autodiff = :forward)
+    od = OnceDifferentiable(x -> -2*reml(yv, Zv, p, Xv, varlink(x), β; memopt = memopt), θvec0; autodiff = :forward)
     method = BFGS(linesearch = LineSearches.HagerZhang(), alphaguess = LineSearches.InitialStatic())
     #method = optm
     #method = ConjugateGradient()
@@ -181,14 +188,14 @@ function rbe(df; dvar::Symbol,
     #Not used yet
     #g!(storage, θx) = copyto!(storage, ForwardDiff.gradient(x -> -2*reml(yv, Zv, p, Xv, x, β), θx))
     #REML function for optimization
-    td = TwiceDifferentiable(x -> -2*remlb(yv, Zv, p, Xv, x, β; memopt = memopt), θvec0; autodiff = :forward)
+    td = TwiceDifferentiable(x -> -2*remlb(yv, Zv, p, Xv, varlink(x), β; memopt = memopt), θvec0; autodiff = :forward)
     #remlfb(x) = -reml2b!(yv, Zv, p, n, N, Xv, G, Rv, Vv, iVv, x, β, memc, memc2, memc3, memc4)
     #@timeit to "o2" O  = optimize(remlfb, θ, method=Newton(),  g_tol=g_tol, x_tol=x_tol, f_tol=f_tol, allow_f_increases = true, store_trace = store_trace, extended_trace = extended_trace, show_trace = show_trace)
     O  = optimize(td, θ, method=Newton(),  g_tol=g_tol, x_tol=x_tol, f_tol=f_tol, allow_f_increases = true, store_trace = store_trace, extended_trace = extended_trace, show_trace = show_trace)
     θ  = copy(Optim.minimizer(O))
     #Get reml
     #remlv = -2*reml(yv, Zv, p, Xv, θ, β)
-    remlv = -reml2b!(yv, Zv, p, n, N, Xv, G, Rv, Vv, iVv, θ, β, memalloc)
+    remlv = -reml2b!(yv, Zv, p, n, N, Xv, G, Rv, Vv, iVv, varlink(θ), β, memalloc)
 
     #θ[5] can not be more than 1.0
     #=
@@ -206,7 +213,7 @@ function rbe(df; dvar::Symbol,
     =#
     #Get Hessian matrix (H) with ForwardDiff
     #H           = Optim.trace(O)[end].metadata["h(x)"]
-    H           = ForwardDiff.hessian(x -> -2*reml(yv, Zv, p, Xv, x, β), θ)
+    H           = ForwardDiff.hessian(x -> -2*reml(yv, Zv, p, Xv, varlink(x), β), θ)
     dH          = det(H)
 
 
@@ -233,7 +240,7 @@ function rbe(df; dvar::Symbol,
         #Lβ      = L*β
         F[i]    = β'*L'*inv(lcl)*L*β/lclr                                       #F[i]    = (L*β)'*inv(L*C*L')*(L*β)/lclr
         #lclg    = lclgf(L, Lt, Xv, Zv, x; memopt = memopt)
-        g       = ForwardDiff.gradient(x -> lclgf(L, Lt, Xv, Zv, x; memopt = memopt), θ)
+        g       = ForwardDiff.gradient(x -> lclgf(L, Lt, Xv, Zv, varlink(x); memopt = memopt), θ)
         df[i]   = max(1, 2*((lcl)[1])^2/(g'*(A)*g))
         t[i]    = ((L*β)/se[i])[1]
         pval[i] = ccdf(TDist(df[i]), abs(t[i]))*2
@@ -253,13 +260,13 @@ function rbe(df; dvar::Symbol,
         if lclr ≥ 2
             vm  = Array{Float64, 1}(undef, lclr)
             for i = 1:lclr
-                g        = ForwardDiff.gradient(x -> lclgf(L[i:i,:], L[i:i,:]', Xv, Zv, x; memopt = memopt), θ)
+                g        = ForwardDiff.gradient(x -> lclgf(L[i:i,:], L[i:i,:]', Xv, Zv, varlink(x); memopt = memopt), θ)
                 dfi      = 2*((L[i:i,:]*C*L[i:i,:]')[1])^2/(g'*(A)*g)
                 vm[i]    = dfi/(dfi-2)
             end
             dfi = 2*sum(vm)/(sum(vm)-lclr)
         else
-            g   = ForwardDiff.gradient(x -> lclgf(L, L', Xv, Zv, x; memopt = memopt), θ)
+            g   = ForwardDiff.gradient(x -> lclgf(L, L', Xv, Zv, varlink(x); memopt = memopt), θ)
             dfi = 2*((lcl)[1])^2/(g'*(A)*g)
         end
         df[i]   = max(1, dfi)
@@ -463,7 +470,7 @@ end
 Return theta (θ) vector (vector of variation parameters from optimization procedure).
 """
 function theta(rbe::RBE)
-    θ = collect(rbe.θ)
+    θ = varlink(collect(rbe.θ))
     θ[end] = thetalink(θ[end])
     return θ
 end
@@ -528,6 +535,7 @@ end
 #-------------------------------------------------------------------------------
 function Base.show(io::IO, rbe::RBE)
     rcoef = coefnames(rbe.rmodel);
+    θ = varlink(rbe.θ)
     println(io, "Bioequivalence Linear Mixed Effect Model (status: $(Optim.converged(rbe.optim) ? "converged" : "not converged"))")
     println(io, "")
     println(io, "-2REML: $(round(rbe.reml, sigdigits=6))    REML: $(round(-rbe.reml/2, sigdigits=6))")
@@ -536,15 +544,15 @@ function Base.show(io::IO, rbe::RBE)
     println(io, rbe.fixed)
     println(io, "Intra-individual variation:")
 
-    printmatrix(io,[rcoef[1] round(rbe.θ[1], sigdigits=6) "CVᵂ:" round(geocv(rbe.θ[1]), sigdigits=6);
-                    rcoef[2] round(rbe.θ[2], sigdigits=6) "CVᵂ:" round(geocv(rbe.θ[2]), sigdigits=6)])
+    printmatrix(io,[rcoef[1] round(θ[1], sigdigits=6) "CVᵂ:" round(geocv(θ[1]), sigdigits=6);
+                    rcoef[2] round(θ[2], sigdigits=6) "CVᵂ:" round(geocv(θ[2]), sigdigits=6)])
     println(io, "")
 
     println(io, "Inter-individual variation:")
 
-    printmatrix(io,[rcoef[1] round(rbe.θ[3], sigdigits=6) "";
-                    rcoef[2] round(rbe.θ[4], sigdigits=6) "";
-                    "ρ:"     round(thetalink(rbe.θ[5]), sigdigits=6) "Cov: $(round(sqrt(rbe.θ[4]*rbe.θ[3])*thetalink(rbe.θ[5]), sigdigits=6))"])
+    printmatrix(io,[rcoef[1] round(θ[3], sigdigits=6) "";
+                    rcoef[2] round(θ[4], sigdigits=6) "";
+                    "ρ:"     round(thetalink(θ[5]), sigdigits=6) "Cov: $(round(sqrt(θ[4]*θ[3])*thetalink(θ[5]), sigdigits=6))"])
     println(io, "")
 
     println(io, "Confidence intervals(90%):")
